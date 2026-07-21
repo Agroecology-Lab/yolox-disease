@@ -50,6 +50,7 @@ weight conversion — see "What this can't do" below before you rely on it.
 
 ## Pipeline
 
+```
 # 0. One-time setup: venv first, then clone YOLOX and drop this repo's exps/ into it.
 python3 -m venv .venv
 source .venv/bin/activate        # re-run this in every new shell before anything below
@@ -95,6 +96,8 @@ python tools/export_onnx.py -f exps/yolox_plant_nano.py -c YOLOX/YOLOX_outputs/y
 python3 -m venv .venv-board && source .venv-board/bin/activate
 pip install -r requirements-board.txt
 python deploy/realtime_infer.py --param plant_disease_nano-int8.param --bin plant_disease_nano-int8.bin --source /dev/video0 --headless
+
+```
 
 
 ## What this can't do
