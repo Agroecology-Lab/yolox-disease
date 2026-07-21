@@ -50,8 +50,10 @@ weight conversion — see "What this can't do" below before you rely on it.
 
 ## Pipeline
 
-```bash
-# 0. One-time setup: clone YOLOX and drop this repo's exps/ into it.
+# 0. One-time setup: venv first, then clone YOLOX and drop this repo's exps/ into it.
+python3 -m venv .venv
+source .venv/bin/activate        # re-run this in every new shell before anything below
+
 git clone https://github.com/Megvii-BaseDetection/YOLOX.git
 cp exps/yolox_plant_nano.py YOLOX/exps/
 cd YOLOX
@@ -65,13 +67,14 @@ wget -O weights/yolox_nano.pth \
   https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_nano.pth
 
 # 1. On your dev machine, with the Roboflow export downloaded:
-python ../dataset/yolo_to_coco.py --src /path/to/plants-diseases-detection-and-classification --dst /data/plant-disease-coco
+DATA_DIR=~/data/plant-disease-coco
+python ../dataset/yolo_to_coco.py --src /path/to/plants-diseases-detection-and-classification --dst $DATA_DIR
 # Prints the class order it read from data.yaml -- confirm it matches
 # CLASS_NAMES in exps/yolox_plant_nano.py and deploy/realtime_infer.py before
 # training; a mismatch trains fine but mislabels every detection later.
 
 # 2. Train (from inside the YOLOX checkout, exps/yolox_plant_nano.py copied in above):
-export PLANT_COCO_DIR=/data/plant-disease-coco
+export PLANT_COCO_DIR=$DATA_DIR
 python tools/train.py -f exps/yolox_plant_nano.py -d 1 -b 32 --fp16 -o \
     -c weights/yolox_nano.pth
 # -d 1: single GPU/device. Drop -d and --fp16 if training CPU-only (slow but
@@ -85,12 +88,13 @@ python tools/eval.py -f exps/yolox_plant_nano.py -c YOLOX_outputs/yolox_plant_na
 
 # 3. Export (back in this repo's directory, or with tools/export_onnx.py on your PYTHONPATH):
 python tools/export_onnx.py -f exps/yolox_plant_nano.py -c YOLOX/YOLOX_outputs/yolox_plant_nano/best_ckpt.pth
-./tools/export_ncnn.sh plant_disease_nano.onnx /data/plant-disease-coco/val2017
+./tools/export_ncnn.sh plant_disease_nano.onnx $DATA_DIR/val2017
 
-# 4. Copy plant_disease_nano-int8.param/.bin to the Avaota A1, then:
+# 4. Copy plant_disease_nano-int8.param/.bin to the Avaota A1, then (on the board —
+# Armbian is Debian-based, so it's likely externally-managed too):
+python3 -m venv .venv-board && source .venv-board/bin/activate
 pip install -r requirements-board.txt
 python deploy/realtime_infer.py --param plant_disease_nano-int8.param --bin plant_disease_nano-int8.bin --source /dev/video0 --headless
-```
 
 
 ## What this can't do
