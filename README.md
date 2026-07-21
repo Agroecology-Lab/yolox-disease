@@ -93,16 +93,8 @@ pip install -r requirements-board.txt
 python deploy/realtime_infer.py --param plant_disease_nano-int8.param --bin plant_disease_nano-int8.bin --source /dev/video0 --headless
 ```
 
-## Fixed in this revision (was wrong, would have silently broken on-device accuracy)
 
-- **Preprocessing mismatch** — `deploy/realtime_infer.py` was converting BGR→RGB and normalizing to [0,1] before feeding the network. YOLOX's default (non-legacy) preprocessing does neither: raw 0-255 float32, BGR channel order untouched (it trains directly off `cv2.imread`). Fixed to `PIXEL_BGR` with no normalization call — matches what `tools/train.py` actually sees.
-- **NMS box format** — `cv2.dnn.NMSBoxes` expects `(x, y, w, h)` rects, not `(x1, y1, x2, y2)` corners. The decode step was passing corners straight in, silently corrupting IoU suppression for any box not touching the frame origin. Fixed to convert to width/height first.
-- **int8 calibration** — `tools/export_ncnn.sh`'s `ncnn2table` call used `norm=[0.003921]*3` (1/255), matching the old wrong preprocessing above. Fixed to `norm=[1,1,1]` so the quantized model is calibrated against the same input range real inference now sends.
-- **Dead fusion step** — `tools/export_onnx.py` had `model = model.head.decode_in_inference and model or model`, a tautology that always evaluates to `model` and never actually fused conv+bn despite the comment above it saying so. Replaced with a real `fuse_model(model)` call (same one YOLOX's own export tool uses).
-
-None of this has been run against real weights or hardware — it was caught by reading the code against YOLOX's actual preprocessing/head-output conventions, not by testing. Bench it once you have int8 weights.
-
-## What this can't do (be honest about what's validated)
+## What this can't do
 
 - **No weight transplant.** `best.pt` isn't in the repo (`app.py` pulls it
   from Google Drive via a secret you don't have here), and YOLOv8's C2f
