@@ -1,0 +1,8 @@
+# Runs on the Avaota A1 itself (Armbian, ARM64). No torch, no ultralytics,
+# no streamlit -- those are heavy, CUDA-oriented, and unnecessary for
+# inference-only deployment on a CPU-only edge board.
+ncnn          # prebuilt ARM64 wheels available; if pip has none for your
+              # exact Armbian/Python combo, build from github.com/Tencent/ncnn
+              # with -DNCNN_PYTHON=ON instead.
+opencv-python-headless>=4.8.0   # V4L2 camera capture + drawing, no GUI deps
+numpy>=1.24.0

@@ -1,0 +1,13 @@
+# Dev machine / training only -- none of this is installed on the Avaota A1.
+torch>=1.10
+torchvision
+git+https://github.com/Megvii-BaseDetection/YOLOX.git
+pycocotools
+onnx
+onnx-simplifier
+opencv-python
+PyYAML
+Pillow
+loguru
+tabulate
+tensorboard
