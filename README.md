@@ -1,7 +1,6 @@
 # Plant disease detection: YOLOv8 → YOLOX, ported for the Avaota A1
 
-This replaces the Ultralytics YOLOv8 pipeline in muqadasejaz`[Plant-Detection-using-YOLOv8](https://github.com/muqadasejaz/Plant-Detection-using-YOLOv8)`
-with a YOLOX pipeline sized for real-time, CPU-only inference on the Avaota A1
+This replaces the Ultralytics YOLOv8 pipeline in muqadasejaz [Plant-Detection-using-YOLOv8](https://github.com/muqadasejaz/Plant-Detection-using-YOLOv8) with a YOLOX pipeline sized for real-time, CPU-only inference on the Avaota A1
 (Allwinner T527, 8x Cortex-A55, Mali-G56/G57). It is a re-architecture, not a
 weight conversion — see "What this can't do" below before you rely on it.
 
