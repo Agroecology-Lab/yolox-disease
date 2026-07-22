@@ -4,6 +4,7 @@
 #
 # Usage: ./setup.sh
 # Re-running is safe: each step is skipped if already done.
+# ./setup.sh --cuda gets you the full CUDA build if you're training on a local GPU.
 
 set -euo pipefail
 
@@ -11,6 +12,17 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_DIR"
 
 echo "==> Repo root: $REPO_DIR"
+
+# Parse args: default to CPU-only torch (no nvidia-* packages, no CUDA
+# runtime download). Pass --cuda if this machine has a GPU you're training
+# on. The Avaota A1 board never needs torch at all -- it runs NCNN.
+USE_CUDA=0
+for arg in "$@"; do
+    case "$arg" in
+        --cuda) USE_CUDA=1 ;;
+        *) echo "Unknown option: $arg (only --cuda is supported)"; exit 1 ;;
+    esac
+done
 
 # 1. venv
 if [ ! -d ".venv" ]; then
@@ -27,8 +39,13 @@ pip install --upgrade pip
 #    `pip install -e .` and before requirements-train.txt (which also
 #    pip-installs YOLOX from git) avoids that failure.
 if ! python -c "import torch" >/dev/null 2>&1; then
-    echo "==> Installing torch"
-    pip install torch
+    if [ "$USE_CUDA" -eq 1 ]; then
+        echo "==> Installing torch (CUDA build)"
+        pip install torch
+    else
+        echo "==> Installing torch (CPU-only build, no nvidia-* packages)"
+        pip install torch --index-url https://download.pytorch.org/whl/cpu
+    fi
 else
     echo "==> torch already installed, skipping"
 fi
