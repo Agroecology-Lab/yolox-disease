@@ -99,7 +99,7 @@ fi
 # downloaded sdist tarball). Modern setuptools does strict PEP 440
 # validation and rejects that string outright, so pin an older setuptools
 # that still tolerates it before building.
-pip install "setuptools<70"
+pip install "setuptools<70" wheel
 
 # --no-build-isolation: YOLOX's setup.py imports torch to decide whether to
 # precompile ops, but torch isn't declared as a build dependency in its
