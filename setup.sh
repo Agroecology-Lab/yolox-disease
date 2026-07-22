@@ -12,6 +12,26 @@ cd "$REPO_DIR"
 
 echo "==> Repo root: $REPO_DIR"
 
+# Python 3.14 (the current Ubuntu default) has no prebuilt wheels yet for
+# onnx-simplifier and other deps in this chain, forcing source builds that
+# hit further breakage (missing cmake, setuptools rejecting the package's
+# 'unknown' version fallback). Python 3.12 has wheels for everything here,
+# so prefer it, installing via deadsnakes if it's not already present.
+PYTHON_BIN="python3.12"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    echo "==> python3.12 not found, installing via deadsnakes PPA (needs sudo)"
+    sudo add-apt-repository -y ppa:deadsnakes/ppa
+    sudo apt update
+    sudo apt install -y python3.12 python3.12-venv
+fi
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    echo "==> ERROR: python3.12 still not available after install attempt."
+    echo "    See https://github.com/deadsnakes/deadsnakes -- your Ubuntu"
+    echo "    release may not have a deadsnakes build yet; pyenv is the"
+    echo "    fallback (https://github.com/pyenv/pyenv)."
+    exit 1
+fi
+
 # Parse args: default to CPU-only torch (no nvidia-* packages, no CUDA
 # runtime download). Pass --cuda if this machine has a GPU you're training
 # on. The Avaota A1 board never needs torch at all -- it runs NCNN.
@@ -24,9 +44,13 @@ for arg in "$@"; do
 done
 
 # 1. venv
+if [ -d ".venv" ] && ! .venv/bin/python --version 2>&1 | grep -q "3\.12"; then
+    echo "==> Existing .venv is not Python 3.12, recreating"
+    rm -rf .venv
+fi
 if [ ! -d ".venv" ]; then
-    echo "==> Creating venv"
-    python3 -m venv .venv
+    echo "==> Creating venv (python3.12)"
+    "$PYTHON_BIN" -m venv .venv
 fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
@@ -60,6 +84,15 @@ cp exps/yolox_plant_nano.py YOLOX/exps/
 
 # 4. Editable install + training requirements (from inside YOLOX/)
 pushd YOLOX >/dev/null
+
+# yolox depends on onnx-simplifier, which compiles a C++ extension and
+# needs the `cmake` build tool (not a Python package) on PATH. Prefer the
+# pip-installable cmake wheel so no sudo/system package manager is needed.
+if ! command -v cmake >/dev/null 2>&1; then
+    echo "==> cmake not found, installing via pip"
+    pip install cmake
+fi
+
 # --no-build-isolation: YOLOX's setup.py imports torch to decide whether to
 # precompile ops, but torch isn't declared as a build dependency in its
 # pyproject.toml. Without this flag, pip builds in an isolated env that
