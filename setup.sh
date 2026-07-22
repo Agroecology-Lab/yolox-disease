@@ -4,7 +4,6 @@
 #
 # Usage: ./setup.sh
 # Re-running is safe: each step is skipped if already done.
-# ./setup.sh --cuda gets you the full CUDA build if you're training on a local GPU.
 
 set -euo pipefail
 
@@ -61,7 +60,12 @@ cp exps/yolox_plant_nano.py YOLOX/exps/
 
 # 4. Editable install + training requirements (from inside YOLOX/)
 pushd YOLOX >/dev/null
-pip install -v -e .
+# --no-build-isolation: YOLOX's setup.py imports torch to decide whether to
+# precompile ops, but torch isn't declared as a build dependency in its
+# pyproject.toml. Without this flag, pip builds in an isolated env that
+# can't see the torch we just installed, so the import still fails even
+# though torch is present in the venv.
+pip install --no-build-isolation -v -e .
 pip install -r ../requirements-train.txt
 
 # 5. COCO-pretrained nano backbone
