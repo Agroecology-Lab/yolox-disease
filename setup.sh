@@ -96,10 +96,9 @@ fi
 # onnx-simplifier (a yolox dependency) has no prebuilt wheel and builds
 # from source unconditionally; its setup.py falls back to the literal
 # version string 'unknown' when git metadata isn't available (as in a
-# downloaded sdist tarball). Modern setuptools does strict PEP 440
-# validation and rejects that string outright, so pin an older setuptools
-# that still tolerates it before building.
-pip install "setuptools<70" wheel
+# downloaded sdist tarball). setuptools 66.0.0 introduced strict PEP 440
+# validation that rejects that string outright, so pin below that.
+pip install "setuptools<66" wheel
 
 # --no-build-isolation: YOLOX's setup.py imports torch to decide whether to
 # precompile ops, but torch isn't declared as a build dependency in its
