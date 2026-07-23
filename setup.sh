@@ -85,20 +85,16 @@ cp exps/yolox_plant_nano.py YOLOX/exps/
 # 4. Editable install + training requirements (from inside YOLOX/)
 pushd YOLOX >/dev/null
 
-# yolox depends on onnx-simplifier, which compiles a C++ extension and
-# needs the `cmake` build tool (not a Python package) on PATH. Prefer the
-# pip-installable cmake wheel so no sudo/system package manager is needed.
-if ! command -v cmake >/dev/null 2>&1; then
-    echo "==> cmake not found, installing via pip"
-    pip install cmake
-fi
-
-# onnx-simplifier (a yolox dependency) has no prebuilt wheel and builds
-# from source unconditionally; its setup.py falls back to the literal
-# version string 'unknown' when git metadata isn't available (as in a
-# downloaded sdist tarball). setuptools 66.0.0 introduced strict PEP 440
-# validation that rejects that string outright, so pin below that.
-pip install "setuptools<66" wheel
+# yolox's setup.py hard-pins onnx-simplifier==0.4.10, a version old enough
+# that PyPI never published a wheel for it -- so pip always builds it from
+# source, and that old sdist's setup.py derives its version via `git
+# describe`, which fails outside a git checkout and falls back to the
+# literal string 'unknown', which no setuptools version can both accept
+# and still support current Python (older setuptools tolerates it but
+# breaks on 3.12+; newer setuptools supports 3.12+ but rejects it).
+# Relaxing the pin lets pip pick a modern onnx-simplifier release that
+# ships a prebuilt wheel, sidestepping the source build entirely.
+sed -i 's/onnx-simplifier==0\.4\.10/onnx-simplifier>=0.4.10/' setup.py
 
 # --no-build-isolation: YOLOX's setup.py imports torch to decide whether to
 # precompile ops, but torch isn't declared as a build dependency in its
