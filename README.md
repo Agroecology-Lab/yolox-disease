@@ -47,6 +47,14 @@ python tools/train.py -f exps/yolox_plant_nano.py -b 32 -c weights/yolox_nano.pt
 # YOLOX_outputs/yolox_plant_nano/{latest,best}_ckpt.pth; eval_interval=5 in
 # the exp prints val mAP every 5 epochs.
 
+# Resuming a run (--resume -c .../latest_ckpt.pth): PyTorch >=2.6 defaults
+# torch.load to weights_only=True, which breaks Trainer.resume_train() on
+# these checkpoints. One-time per clone:
+cp tools/torch_load_patch.py YOLOX/tools/
+sed -i '1i import torch_load_patch  # noqa: F401' YOLOX/tools/train.py
+python tools/train.py -f exps/yolox_plant_nano.py -b 32 \
+    -c YOLOX_outputs/yolox_plant_nano/latest_ckpt.pth --resume
+
 # Optional: evaluate the best checkpoint standalone before exporting
 python tools/eval.py -f exps/yolox_plant_nano.py -c YOLOX_outputs/yolox_plant_nano/best_ckpt.pth -b 32
 
@@ -100,6 +108,10 @@ python deploy/realtime_infer.py --param plant_disease_nano-int8.param --bin plan
   graph on purpose (see next file).
 - `tools/export_ncnn.sh` — ONNX → NCNN `.param`/`.bin`, with an optional int8
   calibration/quantization pass.
+- `tools/torch_load_patch.py` — copy into `YOLOX/tools/` and import first in
+  `YOLOX/tools/train.py` before using `--resume` (see Quickstart); works
+  around PyTorch >=2.6's `weights_only=True` default breaking
+  `Trainer.resume_train()`.
 - `deploy/realtime_infer.py` — runs **on the board**: V4L2 camera capture,
   YOLOX grid/stride decode + NMS in numpy, draws boxes, prints an FPS-tagged
   detection summary. This is the on-device equivalent of `app.py`.
