@@ -129,7 +129,66 @@ else
 fi
 popd >/dev/null
 
+# 6. Download the Roboflow dataset export and convert it to COCO format.
+# Needs a Roboflow API key (free account): https://app.roboflow.com/settings/api
+# Get yours, then re-run as:
+#   ROBOFLOW_API_KEY=your_key_here ./setup.sh
+# Optional overrides (defaults shown):
+#   ROBOFLOW_VERSION=1        -- dataset version number on Roboflow Universe
+#   ROBOFLOW_FORMAT=yolov8    -- export format (must include a data.yaml)
+#   DATA_DIR=~/data/plant-disease-coco  -- where the converted COCO dataset goes
+ROBOFLOW_VERSION="${ROBOFLOW_VERSION:-1}"
+ROBOFLOW_FORMAT="${ROBOFLOW_FORMAT:-yolov8}"
+DATA_DIR="${DATA_DIR:-$HOME/data/plant-disease-coco}"
+
+if [ -z "${ROBOFLOW_API_KEY:-}" ]; then
+    echo "==> ROBOFLOW_API_KEY not set, skipping dataset download."
+    echo "    Get a free API key at https://app.roboflow.com/settings/api"
+    echo "    then re-run: ROBOFLOW_API_KEY=your_key_here ./setup.sh"
+    echo "    (add ROBOFLOW_VERSION=N if the dataset version isn't 1)"
+else
+    pip install roboflow
+
+    if [ -d "$DATA_DIR" ]; then
+        echo "==> $DATA_DIR already exists, skipping download + conversion"
+    else
+        echo "==> Downloading Roboflow dataset (version $ROBOFLOW_VERSION, format $ROBOFLOW_FORMAT)"
+        RF_EXPORT_DIR=$(python3 - "$ROBOFLOW_API_KEY" "$ROBOFLOW_VERSION" "$ROBOFLOW_FORMAT" <<'EOF'
+import sys
+from roboflow import Roboflow
+
+api_key, version, fmt = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+rf = Roboflow(api_key=api_key)
+project = rf.workspace("graduation-project-2023").project(
+    "plants-diseases-detection-and-classification"
+)
+dataset = project.version(version).download(fmt)
+print(dataset.location)
+EOF
+        )
+        echo "==> Downloaded to $RF_EXPORT_DIR"
+        echo "==> Converting to COCO format at $DATA_DIR"
+        python3 dataset/yolo_to_coco.py --src "$RF_EXPORT_DIR" --dst "$DATA_DIR"
+        echo "    ^ confirm the printed class order matches CLASS_NAMES in"
+        echo "      exps/yolox_plant_nano.py and deploy/realtime_infer.py --"
+        echo "      a mismatch trains fine but mislabels every detection later."
+    fi
+fi
+
 echo "==> Setup complete."
-echo "    Next: run dataset/yolo_to_coco.py, then train from inside YOLOX/"
-echo "    (see README.md steps 1-4). Remember: dataset conversion, export,"
-echo "    and board deploy commands run from $REPO_DIR, not from YOLOX/."
+if [ -d "$DATA_DIR" ]; then
+    echo "    Dataset ready at $DATA_DIR. To train (from inside YOLOX/):"
+    echo "      cd YOLOX"
+    echo "      export PLANT_COCO_DIR=$DATA_DIR"
+    echo "      python tools/train.py -f exps/yolox_plant_nano.py -b 32 -o \\"
+    echo "          -c weights/yolox_nano.pth"
+    echo "      (drop -d 1 --fp16 unless training on a real GPU -- this is"
+    echo "      a CPU-only torch install by default)"
+else
+    echo "    Dataset not downloaded yet -- set ROBOFLOW_API_KEY and re-run"
+    echo "    ./setup.sh, or run dataset/yolo_to_coco.py manually with your"
+    echo "    own --src export directory and --dst destination."
+fi
+echo "    Export and board-deploy commands (tools/export_onnx.py,"
+echo "    export_ncnn.sh, deploy/realtime_infer.py) run from $REPO_DIR,"
+echo "    not from YOLOX/ -- see README.md steps 3-4."
