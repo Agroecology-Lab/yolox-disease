@@ -256,6 +256,45 @@ else:
         print("==> Patched yolo_head.py simota_matching for zero-in-box-anchor crash")
 EOF
 
+# yolox/evaluators/coco_evaluator.py's evaluate() unconditionally builds
+# torch.cuda.FloatTensor/HalfTensor for the eval image batch and the
+# inference/nms-time stats tensor -- eval_interval=5 in our exp means this
+# runs every 5 epochs, so a CPU-only run trains fine for epochs 1-4 and only
+# crashes at the first eval, deep into a run, with "Cannot initialize CUDA
+# without ATen_cuda library". Idempotent: skipped if already patched.
+python3 - "YOLOX/yolox/evaluators/coco_evaluator.py" <<'EOF'
+import sys
+path = sys.argv[1]
+src = open(path).read()
+if "torch.cuda.is_available()" in src:
+    print("==> coco_evaluator.py already patched for CPU eval, skipping")
+else:
+    old1 = (
+        "        # TODO half to amp_test\n"
+        "        tensor_type = torch.cuda.HalfTensor if half else torch.cuda.FloatTensor"
+    )
+    new1 = (
+        "        # TODO half to amp_test\n"
+        "        if torch.cuda.is_available():\n"
+        "            tensor_type = torch.cuda.HalfTensor if half else torch.cuda.FloatTensor\n"
+        "        else:\n"
+        "            tensor_type = torch.HalfTensor if half else torch.FloatTensor"
+    )
+    old2 = "        statistics = torch.cuda.FloatTensor([inference_time, nms_time, n_samples])"
+    new2 = (
+        "        if torch.cuda.is_available():\n"
+        "            statistics = torch.cuda.FloatTensor([inference_time, nms_time, n_samples])\n"
+        "        else:\n"
+        "            statistics = torch.FloatTensor([inference_time, nms_time, n_samples])"
+    )
+    if old1 not in src or old2 not in src:
+        print("==> WARNING: expected coco_evaluator.py text not found, skipped -- check manually")
+    else:
+        src = src.replace(old1, new1).replace(old2, new2)
+        open(path, "w").write(src)
+        print("==> Patched coco_evaluator.py for CPU eval support")
+EOF
+
 # 4. Editable install + training requirements (from inside YOLOX/)
 pushd YOLOX >/dev/null
 
