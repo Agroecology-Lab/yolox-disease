@@ -110,6 +110,12 @@ sed -i 's/onnx-simplifier==0\.4\.10/onnx-simplifier>=0.4.10/' requirements.txt
 # can't see the torch we just installed, so the import still fails even
 # though torch is present in the venv.
 pip install --no-build-isolation -v -e .
+# requirements-train.txt redundantly re-installs yolox from git (it's
+# already installed, patched, via -e . above). Re-fetching a pristine
+# YOLOX checkout drags its original unpatched requirements.txt back in,
+# reintroducing the onnx-simplifier==0.4.10 bug we just fixed. Strip that
+# line before installing.
+sed -i '/YOLOX\.git/d' ../requirements-train.txt
 pip install --no-build-isolation -r ../requirements-train.txt
 
 # 5. COCO-pretrained nano backbone
