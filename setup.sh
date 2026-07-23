@@ -212,6 +212,50 @@ else:
     print("==> Patched yolox_base.py random_resize for CPU training support")
 EOF
 
+# yolox/models/yolo_head.py's simota_matching() assumes at least one anchor
+# always falls inside/near every gt box. When none do -- small, edge-clipped,
+# or heavily mosaic/affine-augmented boxes, especially at the smaller end of
+# multiscale training -- torch.topk(cost[gt_idx], k=1) on a length-0 dim
+# crashes with "selected index k out of range". This is a known, unresolved
+# upstream issue (Megvii-BaseDetection/YOLOX#777, #811, #1096, #1219) that
+# surfaces partway through training, not at startup, so it's easy to lose an
+# hour of progress to before noticing. Idempotent: skipped if already patched.
+python3 - "YOLOX/yolox/models/yolo_head.py" <<'EOF'
+import sys
+path = sys.argv[1]
+src = open(path).read()
+old = (
+    "    def simota_matching(self, cost, pair_wise_ious, gt_classes, num_gt, fg_mask):\n"
+    "        matching_matrix = torch.zeros_like(cost, dtype=torch.uint8)\n"
+    "\n"
+    "        n_candidate_k = min(10, pair_wise_ious.size(1))"
+)
+if "pair_wise_ious.shape[1] == 0" in src:
+    print("==> yolo_head.py already patched (or line not found), skipping")
+else:
+    new = (
+        "    def simota_matching(self, cost, pair_wise_ious, gt_classes, num_gt, fg_mask):\n"
+        "        matching_matrix = torch.zeros_like(cost, dtype=torch.uint8)\n"
+        "\n"
+        "        if pair_wise_ious.shape[1] == 0:\n"
+        "            # No anchor point falls inside/near ANY gt box for this image --\n"
+        "            # treat as zero foreground matches instead of crashing; fg_mask\n"
+        "            # is already all-False here, so nothing else needs updating.\n"
+        "            num_fg = 0\n"
+        "            gt_matched_classes = cost.new_zeros(0)\n"
+        "            pred_ious_this_matching = cost.new_zeros(0)\n"
+        "            matched_gt_inds = cost.new_zeros(0, dtype=torch.int64)\n"
+        "            return num_fg, gt_matched_classes, pred_ious_this_matching, matched_gt_inds\n"
+        "\n"
+        "        n_candidate_k = min(10, pair_wise_ious.size(1))"
+    )
+    if old not in src:
+        print("==> WARNING: expected simota_matching text not found, skipped -- check yolo_head.py manually")
+    else:
+        open(path, "w").write(src.replace(old, new))
+        print("==> Patched yolo_head.py simota_matching for zero-in-box-anchor crash")
+EOF
+
 # 4. Editable install + training requirements (from inside YOLOX/)
 pushd YOLOX >/dev/null
 
