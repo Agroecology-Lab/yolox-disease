@@ -282,10 +282,51 @@ EOF
         echo "==> Downloaded to $RF_EXPORT_DIR"
         echo "==> Converting to COCO format at $DATA_DIR"
         python3 dataset/yolo_to_coco.py --src "$RF_EXPORT_DIR" --dst "$DATA_DIR"
-        echo "    ^ confirm the printed class order matches CLASS_NAMES in"
-        echo "      exps/yolox_plant_nano.py and deploy/realtime_infer.py --"
-        echo "      a mismatch trains fine but mislabels every detection later."
     fi
+fi
+
+# yolo_to_coco.py uses ALL classes from the Roboflow data.yaml (29 for this
+# dataset), but exps/yolox_plant_nano.py and deploy/realtime_infer.py may
+# still have a smaller hand-curated CLASS_NAMES list -- that mismatch
+# crashes training ("Class values must be smaller than num_classes") as
+# soon as a batch contains a class outside the curated subset. Sync both
+# files' CLASS_NAMES to the authoritative order already baked into the
+# converted dataset's COCO json, so this can't drift out of sync. Runs
+# every time (idempotent: no-ops if already matching), regardless of
+# whether the dataset was just downloaded above or already existed.
+ANNOTATIONS="$DATA_DIR/annotations/instances_train2017.json"
+if [ -f "$ANNOTATIONS" ]; then
+    python3 - "$ANNOTATIONS" exps/yolox_plant_nano.py deploy/realtime_infer.py <<'EOF'
+import json
+import re
+import sys
+
+ann_path, exp_path, infer_path = sys.argv[1], sys.argv[2], sys.argv[3]
+
+with open(ann_path) as f:
+    categories = json.load(f)["categories"]
+names = [c["name"] for c in sorted(categories, key=lambda c: c["id"])]
+
+block = "CLASS_NAMES = (\n" + "".join(f'    "{n}",\n' for n in names) + ")"
+pattern = re.compile(r"CLASS_NAMES = \(.*?\)", re.DOTALL)
+
+for path in (exp_path, infer_path):
+    src = open(path).read()
+    new_src, count = pattern.subn(block, src, count=1)
+    if count == 0:
+        print(f"==> WARNING: no CLASS_NAMES block found in {path}, skipped")
+    elif new_src == src:
+        print(f"==> {path}: CLASS_NAMES already in sync ({len(names)} classes)")
+    else:
+        open(path, "w").write(new_src)
+        print(f"==> Updated {path}: CLASS_NAMES now has {len(names)} classes")
+EOF
+    # Re-copy into YOLOX/ since the exp file was already copied there earlier
+    # (before this sync ran) and training reads exps/ from inside YOLOX/.
+    cp exps/yolox_plant_nano.py YOLOX/exps/yolox_plant_nano.py
+else
+    echo "==> No converted dataset found yet at $ANNOTATIONS, skipping CLASS_NAMES sync"
+    echo "    (set ROBOFLOW_API_KEY and re-run to download + convert first)"
 fi
 
 echo "==> Setup complete."
