@@ -110,7 +110,7 @@ sed -i 's/onnx-simplifier==0\.4\.10/onnx-simplifier>=0.4.10/' requirements.txt
 # can't see the torch we just installed, so the import still fails even
 # though torch is present in the venv.
 pip install --no-build-isolation -v -e .
-pip install -r ../requirements-train.txt
+pip install --no-build-isolation -r ../requirements-train.txt
 
 # 5. COCO-pretrained nano backbone
 mkdir -p weights
