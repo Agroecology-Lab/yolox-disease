@@ -191,6 +191,27 @@ class DataPrefetcher:
     print("==> Patched data_prefetcher.py for CPU training support")
 EOF
 
+# yolox/exp/yolox_base.py's random_resize() (multiscale training) also
+# unconditionally does torch.LongTensor(2).cuda() -- only needed to support
+# a multi-GPU NCCL broadcast that a single-process CPU/single-GPU run never
+# reaches. Idempotent: skipped if already patched.
+python3 - "YOLOX/yolox/exp/yolox_base.py" <<'EOF'
+import sys
+path = sys.argv[1]
+src = open(path).read()
+old = "tensor = torch.LongTensor(2).cuda()"
+if old not in src:
+    print("==> yolox_base.py already patched (or line not found), skipping")
+else:
+    new = (
+        "tensor = torch.LongTensor(2)\n"
+        "        if torch.cuda.is_available():\n"
+        "            tensor = tensor.cuda()"
+    )
+    open(path, "w").write(src.replace(old, new))
+    print("==> Patched yolox_base.py random_resize for CPU training support")
+EOF
+
 # 4. Editable install + training requirements (from inside YOLOX/)
 pushd YOLOX >/dev/null
 
