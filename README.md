@@ -2,7 +2,65 @@
 
 This replaces the Ultralytics YOLOv8 pipeline in muqadasejaz [Plant-Detection-using-YOLOv8](https://github.com/muqadasejaz/Plant-Detection-using-YOLOv8) with a YOLOX pipeline sized for real-time, CPU-only inference on the Avaota A1
 (Allwinner T527, 8x Cortex-A55, Mali-G56/G57). It is a re-architecture, not a
-weight conversion — see "What this can't do" below before you rely on it.
+weight conversion
+
+## Quickstart
+
+```bash
+git clone https://github.com/Agroecology-Lab/yolox-disease.git
+cd yolox-disease
+chmod 777 setup.sh
+./setup.sh
+# or, to also fetch + convert the Roboflow dataset in the same pass:
+ROBOFLOW_API_KEY=your_key_here ./setup.sh
+```
+
+`setup.sh` is idempotent (safe to re-run) and handles everything the old
+manual pipeline did, plus the CPU-training patches YOLOX needs:
+
+- installs Python 3.12 (via deadsnakes if not already present) and creates
+  `.venv`
+- installs `torch` (CPU-only build by default; pass `--cuda` for a GPU box)
+- clones `YOLOX/`, drops in `exps/yolox_plant_nano.py`, and patches
+  `trainer.py` / `data_prefetcher.py` / `yolox_base.py` to fall back to CPU
+  instead of assuming a CUDA device
+- editable-installs YOLOX and `requirements-train.txt`
+- downloads the COCO-pretrained `weights/yolox_nano.pth`
+- with `ROBOFLOW_API_KEY` set: downloads the Roboflow export, converts it to
+  COCO json at `$DATA_DIR` (default `~/data/plant-disease-coco`, override
+  with `DATA_DIR=`), and syncs `CLASS_NAMES` in both
+  `exps/yolox_plant_nano.py` and `deploy/realtime_infer.py` to the dataset's
+  actual class order
+
+Get a free API key at [Roboflow: API settings](https://app.roboflow.com/settings/api) if you skipped
+`ROBOFLOW_API_KEY` the first time, then re-run `ROBOFLOW_API_KEY=... ./setup.sh`.
+
+```bash
+# Train (from inside YOLOX/):
+cd YOLOX
+source ../.venv/bin/activate
+export PLANT_COCO_DIR=~/data/plant-disease-coco   # or your DATA_DIR override
+python tools/train.py -f exps/yolox_plant_nano.py -b 32 -c weights/yolox_nano.pth
+# CPU-only: no -d/--fp16/-o (those assume a GPU; -o in particular calls an
+# unguarded torch.cuda.FloatTensor(...) and will crash on CPU). If you ran
+# setup.sh --cuda, use -d 1 -b 32 --fp16 -o instead. Checkpoints land in
+# YOLOX_outputs/yolox_plant_nano/{latest,best}_ckpt.pth; eval_interval=5 in
+# the exp prints val mAP every 5 epochs.
+
+# Optional: evaluate the best checkpoint standalone before exporting
+python tools/eval.py -f exps/yolox_plant_nano.py -c YOLOX_outputs/yolox_plant_nano/best_ckpt.pth -b 32
+
+# Export (back in this repo's directory):
+cd ..
+python tools/export_onnx.py -f exps/yolox_plant_nano.py -c YOLOX/YOLOX_outputs/yolox_plant_nano/best_ckpt.pth
+./tools/export_ncnn.sh plant_disease_nano.onnx ~/data/plant-disease-coco/val2017
+
+# Copy plant_disease_nano-int8.param/.bin to the Avaota A1, then (on the board —
+# Armbian is Debian-based, so it's likely externally-managed too):
+python3 -m venv .venv-board && source .venv-board/bin/activate
+pip install -r requirements-board.txt
+python deploy/realtime_infer.py --param plant_disease_nano-int8.param --bin plant_disease_nano-int8.bin --source /dev/video0 --headless
+```
 
 ## Why YOLOX instead of YOLOv8
 
@@ -47,58 +105,6 @@ weight conversion — see "What this can't do" below before you rely on it.
   detection summary. This is the on-device equivalent of `app.py`.
 - `requirements-train.txt` / `requirements-board.txt` — kept separate on
   purpose; nothing in the training file should end up installed on the SBC.
-
-## Pipeline
-
-```
-# 0. One-time setup: venv first, then clone YOLOX and drop this repo's exps/ into it.
-python3 -m venv .venv
-source .venv/bin/activate        # re-run this in every new shell before anything below
-
-git clone https://github.com/Megvii-BaseDetection/YOLOX.git
-cp exps/yolox_plant_nano.py YOLOX/exps/
-cd YOLOX
-pip install -v -e .              # editable install, needed for tools/train.py
-pip install -r ../requirements-train.txt
-
-# Grab the COCO-pretrained nano backbone (fine-tuning from this, not random
-# init, is what makes an 80-epoch run on ~2,600 images viable):
-mkdir -p weights
-wget -O weights/yolox_nano.pth \
-  https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_nano.pth
-
-# 1. On your dev machine, with the Roboflow export downloaded:
-DATA_DIR=~/data/plant-disease-coco
-python ../dataset/yolo_to_coco.py --src /path/to/plants-diseases-detection-and-classification --dst $DATA_DIR
-# Prints the class order it read from data.yaml -- confirm it matches
-# CLASS_NAMES in exps/yolox_plant_nano.py and deploy/realtime_infer.py before
-# training; a mismatch trains fine but mislabels every detection later.
-
-# 2. Train (from inside the YOLOX checkout, exps/yolox_plant_nano.py copied in above):
-export PLANT_COCO_DIR=$DATA_DIR
-python tools/train.py -f exps/yolox_plant_nano.py -d 1 -b 32 --fp16 -o \
-    -c weights/yolox_nano.pth
-# -d 1: single GPU/device. Drop -d and --fp16 if training CPU-only (slow but
-# works for a dataset this small). Checkpoints land in
-# YOLOX_outputs/yolox_plant_nano/{latest,best}_ckpt.pth; eval_interval=5 in
-# the exp means val mAP prints every 5 epochs so you can catch overfitting
-# early rather than waiting for all 80.
-
-# Optional: evaluate the best checkpoint standalone before exporting
-python tools/eval.py -f exps/yolox_plant_nano.py -c YOLOX_outputs/yolox_plant_nano/best_ckpt.pth -d 1 -b 32
-
-# 3. Export (back in this repo's directory, or with tools/export_onnx.py on your PYTHONPATH):
-python tools/export_onnx.py -f exps/yolox_plant_nano.py -c YOLOX/YOLOX_outputs/yolox_plant_nano/best_ckpt.pth
-./tools/export_ncnn.sh plant_disease_nano.onnx $DATA_DIR/val2017
-
-# 4. Copy plant_disease_nano-int8.param/.bin to the Avaota A1, then (on the board —
-# Armbian is Debian-based, so it's likely externally-managed too):
-python3 -m venv .venv-board && source .venv-board/bin/activate
-pip install -r requirements-board.txt
-python deploy/realtime_infer.py --param plant_disease_nano-int8.param --bin plant_disease_nano-int8.bin --source /dev/video0 --headless
-
-```
-
 
 ## What this can't do
 
