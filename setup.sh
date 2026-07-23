@@ -90,6 +90,33 @@ else
 fi
 cp exps/yolox_plant_nano.py YOLOX/exps/
 
+# Upstream YOLOX's trainer.py unconditionally assumes a CUDA device exists
+# (self.device hardcoded to "cuda:N", plus a bare torch.cuda.set_device()
+# call in before_train()), so CPU-only training crashes even after
+# dropping -d/--fp16 as the README suggests. This is a known, unresolved
+# upstream issue (Megvii-BaseDetection/YOLOX#393). Patch it to fall back
+# to CPU when no GPU is present. Idempotent: skipped if already patched.
+python3 - "YOLOX/yolox/core/trainer.py" <<'EOF'
+import sys
+path = sys.argv[1]
+src = open(path).read()
+if "torch.cuda.is_available()" in src:
+    print("==> trainer.py already patched for CPU training, skipping")
+else:
+    src = src.replace(
+        'self.device = "cuda:{}".format(self.local_rank)',
+        'self.device = "cuda:{}".format(self.local_rank) '
+        'if torch.cuda.is_available() else "cpu"',
+    )
+    src = src.replace(
+        "        torch.cuda.set_device(self.local_rank)\n",
+        "        if torch.cuda.is_available():\n"
+        "            torch.cuda.set_device(self.local_rank)\n",
+    )
+    open(path, "w").write(src)
+    print("==> Patched trainer.py for CPU training support")
+EOF
+
 # 4. Editable install + training requirements (from inside YOLOX/)
 pushd YOLOX >/dev/null
 
@@ -117,6 +144,18 @@ pip install --no-build-isolation -v -e .
 # line before installing.
 sed -i '/YOLOX\.git/d' ../requirements-train.txt
 pip install --no-build-isolation -r ../requirements-train.txt
+
+# yolox's own requirements pull in torchvision unpinned, from plain PyPI --
+# which can be ABI-mismatched against the specific torch build we chose
+# above (CPU-only or CUDA), causing errors like
+# "RuntimeError: operator torchvision::nms does not exist" at import time.
+# Reinstall both together from the same index so they're guaranteed
+# compatible, overriding whatever yolox's deps just pulled in.
+if [ "$USE_CUDA" -eq 1 ]; then
+    pip install --upgrade torch torchvision
+else
+    pip install --upgrade torch torchvision --index-url https://download.pytorch.org/whl/cpu
+fi
 
 # 5. COCO-pretrained nano backbone
 mkdir -p weights
@@ -180,10 +219,17 @@ if [ -d "$DATA_DIR" ]; then
     echo "    Dataset ready at $DATA_DIR. To train (from inside YOLOX/):"
     echo "      cd YOLOX"
     echo "      export PLANT_COCO_DIR=$DATA_DIR"
-    echo "      python tools/train.py -f exps/yolox_plant_nano.py -b 32 -o \\"
-    echo "          -c weights/yolox_nano.pth"
-    echo "      (drop -d 1 --fp16 unless training on a real GPU -- this is"
-    echo "      a CPU-only torch install by default)"
+    if [ "$USE_CUDA" -eq 1 ]; then
+        echo "      python tools/train.py -f exps/yolox_plant_nano.py -d 1 -b 32 --fp16 -o \\"
+        echo "          -c weights/yolox_nano.pth"
+    else
+        echo "      python tools/train.py -f exps/yolox_plant_nano.py -b 32 \\"
+        echo "          -c weights/yolox_nano.pth"
+        echo "      (no -d/--fp16/-o: those assume a GPU. -o in particular"
+        echo "      calls an unguarded torch.cuda.FloatTensor(...) and will"
+        echo "      crash on CPU -- trainer.py has been patched separately"
+        echo "      to handle the CUDA-device assumptions -o doesn't cover.)"
+    fi
 else
     echo "    Dataset not downloaded yet -- set ROBOFLOW_API_KEY and re-run"
     echo "    ./setup.sh, or run dataset/yolo_to_coco.py manually with your"
