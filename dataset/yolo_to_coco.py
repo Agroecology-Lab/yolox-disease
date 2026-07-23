@@ -67,6 +67,7 @@ def convert_split(src_root: Path, dst_root: Path, split_src: str, split_dst: str
     images, annotations = [], []
     ann_id = 1
     img_id = 1
+    skipped = 0
 
     img_files = sorted(
         [p for p in img_dir.iterdir() if p.suffix.lower() in (".jpg", ".jpeg", ".png")]
@@ -98,6 +99,23 @@ def convert_split(src_root: Path, dst_root: Path, split_src: str, split_dst: str
                     y = (cy - bh / 2) * h
                     box_w = bw * w
                     box_h = bh * h
+
+                    # Clip to image bounds the same way YOLOX's COCODataset
+                    # loader does (yolox/data/datasets/coco.py), then drop
+                    # boxes that clip down to zero width/height. That loader
+                    # only rejects x2 < x1 / y2 < y1 (not <=), so an
+                    # edge-touching or near-zero-size YOLO box survives into
+                    # training with zero real area, zero anchors ever match
+                    # it, and get_assignments() crashes with "selected index
+                    # k out of range" in simota_matching(). Better to drop it
+                    # here, once, than debug that traceback per bad image.
+                    x1, y1 = max(0.0, x), max(0.0, y)
+                    x2 = min(float(w), x1 + max(0.0, box_w))
+                    y2 = min(float(h), y1 + max(0.0, box_h))
+                    if x2 - x1 <= 0 or y2 - y1 <= 0:
+                        skipped += 1
+                        continue
+
                     annotations.append(
                         {
                             "id": ann_id,
@@ -115,6 +133,9 @@ def convert_split(src_root: Path, dst_root: Path, split_src: str, split_dst: str
         {"id": i + 1, "name": name, "supercategory": "plant_disease"}
         for i, name in enumerate(class_names)
     ]
+
+    if skipped:
+        print(f"[{split_dst}] skipped {skipped} degenerate (zero-area after clip) boxes")
 
     coco = {"images": images, "annotations": annotations, "categories": categories}
     return coco
