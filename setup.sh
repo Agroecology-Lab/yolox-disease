@@ -22,7 +22,7 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
     echo "==> python3.12 not found, installing via deadsnakes PPA (needs sudo)"
     sudo add-apt-repository -y ppa:deadsnakes/ppa
     sudo apt update
-    sudo apt install -y python3.12 python3.12-venv
+    sudo apt install -y python3.12 python3.12-venv python3.12-dev
 fi
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
     echo "==> ERROR: python3.12 still not available after install attempt."
@@ -30,6 +30,14 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
     echo "    release may not have a deadsnakes build yet; pyenv is the"
     echo "    fallback (https://github.com/pyenv/pyenv)."
     exit 1
+fi
+
+# YOLOX compiles a real C++ extension (cocoeval) that needs Python.h.
+# Even if python3.12 itself was already present before this script ran,
+# the -dev headers package may not be -- check separately.
+if ! dpkg -l python3.12-dev >/dev/null 2>&1; then
+    echo "==> python3.12-dev not found, installing (needs sudo)"
+    sudo apt install -y python3.12-dev
 fi
 
 # Parse args: default to CPU-only torch (no nvidia-* packages, no CUDA
@@ -55,7 +63,7 @@ fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
 
-pip install --upgrade pip
+pip install --upgrade pip setuptools wheel
 
 # 2. torch FIRST -- YOLOX's setup.py imports torch during the build step
 #    ("torch is required for pre-compiling ops"); installing it before
@@ -94,7 +102,7 @@ pushd YOLOX >/dev/null
 # breaks on 3.12+; newer setuptools supports 3.12+ but rejects it).
 # Relaxing the pin lets pip pick a modern onnx-simplifier release that
 # ships a prebuilt wheel, sidestepping the source build entirely.
-sed -i 's/onnx-simplifier==0\.4\.10/onnx-simplifier>=0.4.10/' setup.py
+sed -i 's/onnx-simplifier==0\.4\.10/onnx-simplifier>=0.4.10/' requirements.txt
 
 # --no-build-isolation: YOLOX's setup.py imports torch to decide whether to
 # precompile ops, but torch isn't declared as a build dependency in its
